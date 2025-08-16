@@ -7,6 +7,7 @@ import { UpdateTaskDto } from './dto/update-task.dto';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TaskStatus } from './enums/task-status.enum';
+import { TaskPriority } from './enums/task-priority.enum';
 
 @Injectable()
 export class TasksService {
@@ -98,5 +99,34 @@ export class TasksService {
     const task = await this.findOne(id);
     task.status = status as any;
     return this.tasksRepository.save(task);
+  }
+
+  // tasks.service.ts
+  async findAllWithFilters(
+    page: number,
+    limit: number,
+    status?: TaskStatus,
+    priority?: TaskPriority,
+  ): Promise<{ data: Task[]; total: number }> {
+    const query = this.tasksRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.user', 'user');
+
+    if (status) {
+      query.andWhere('task.status = :status', { status });
+    }
+
+    if (priority) {
+      query.andWhere('task.priority = :priority', { priority });
+    }
+
+    query
+      .orderBy('task.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [data, total] = await query.getManyAndCount();
+
+    return { data, total };
   }
 }
