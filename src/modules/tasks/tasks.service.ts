@@ -129,4 +129,26 @@ export class TasksService {
 
     return { data, total };
   }
+
+  async batchUpdateStatus(taskIds: string[], status: TaskStatus): Promise<number> {
+    const result = await this.tasksRepository
+      .createQueryBuilder()
+      .update(Task)
+      .set({ status })
+      .whereInIds(taskIds)
+      .execute();
+
+    return result.affected || 0;
+  }
+
+  async batchDelete(taskIds: string[]): Promise<number> {
+    const result = await this.tasksRepository
+      .createQueryBuilder()
+      .delete()
+      .from(Task)
+      .whereInIds(taskIds)
+      .execute();
+
+    return result.affected || 0;
+  }
 }
