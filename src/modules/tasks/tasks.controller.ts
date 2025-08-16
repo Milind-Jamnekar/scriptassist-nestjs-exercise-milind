@@ -38,12 +38,7 @@ class JwtAuthGuard {}
 @RateLimit({ limit: 100, windowMs: 60000 })
 @ApiBearerAuth()
 export class TasksController {
-  constructor(
-    private readonly tasksService: TasksService,
-    // Anti-pattern: Controller directly accessing repository
-    @InjectRepository(Task)
-    private taskRepository: Repository<Task>,
-  ) {}
+  constructor(private readonly tasksService: TasksService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
@@ -91,32 +86,13 @@ export class TasksController {
   @Get('stats')
   @ApiOperation({ summary: 'Get task statistics' })
   async getStats() {
-    // Inefficient approach: N+1 query problem
-    const tasks = await this.taskRepository.find();
-
-    // Inefficient computation: Should be done with SQL aggregation
-    const statistics = {
-      total: tasks.length,
-      completed: tasks.filter(t => t.status === TaskStatus.COMPLETED).length,
-      inProgress: tasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length,
-      pending: tasks.filter(t => t.status === TaskStatus.PENDING).length,
-      highPriority: tasks.filter(t => t.priority === TaskPriority.HIGH).length,
-    };
-
-    return statistics;
+    return this.tasksService.getStats();
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Find a task by ID' })
   async findOne(@Param('id') id: string) {
-    const task = await this.tasksService.findOne(id);
-
-    if (!task) {
-      // Inefficient error handling: Revealing internal details
-      throw new HttpException(`Task with ID ${id} not found in the database`, HttpStatus.NOT_FOUND);
-    }
-
-    return task;
+    return this.tasksService.findOne(id);
   }
 
   @Patch(':id')

@@ -42,17 +42,16 @@ export class TasksService {
   }
 
   async findOne(id: string): Promise<Task> {
-    // Inefficient implementation: two separate database calls
-    const count = await this.tasksRepository.count({ where: { id } });
+    const task = await this.tasksRepository.findOne({
+      where: { id },
+      select: ['user'],
+    });
 
-    if (count === 0) {
+    if (!task) {
       throw new NotFoundException(`Task with ID ${id} not found`);
     }
 
-    return (await this.tasksRepository.findOne({
-      where: { id },
-      relations: ['user'],
-    })) as Task;
+    return task;
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
@@ -150,5 +149,22 @@ export class TasksService {
       .execute();
 
     return result.affected || 0;
+  }
+
+  async getStats() {
+    const result = await this.tasksRepository
+      .createQueryBuilder('task')
+      .select('COUNT(task.id)', 'total')
+      .addSelect(`COUNT(*) FILTER (WHERE task.status = :completed)`, 'completed')
+      .addSelect(`COUNT(*) FILTER (WHERE task.status = :pending)`, 'pending')
+      .addSelect(`COUNT(*) FILTER (WHERE task.priority = :highPriority)`, 'highPriority')
+      .setParameters({
+        completed: TaskStatus.COMPLETED,
+        pending: TaskStatus.PENDING,
+        highPriority: TaskPriority.HIGH,
+      })
+      .getRawOne();
+
+    return result;
   }
 }
