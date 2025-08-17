@@ -127,6 +127,10 @@ export class TasksService {
     limit: number,
     status?: TaskStatus,
     priority?: TaskPriority,
+    search?: string,
+    startDate?: string,
+    endDate?: string,
+    userId?: string,
   ): Promise<{ data: Task[]; total: number }> {
     const query = this.tasksRepository
       .createQueryBuilder('task')
@@ -138,6 +142,24 @@ export class TasksService {
 
     if (priority) {
       query.andWhere('task.priority = :priority', { priority });
+    }
+
+    if (search) {
+      query.andWhere('task.title ILIKE :search OR task.description ILIKE :search', {
+        search: `%${search}%`,
+      });
+    }
+
+    if (startDate) {
+      query.andWhere('task.createdAt >= :startDate', { startDate });
+    }
+
+    if (endDate) {
+      query.andWhere('task.createdAt <= :endDate', { endDate });
+    }
+
+    if (userId) {
+      query.andWhere('task.userId = :userId', { userId });
     }
 
     query

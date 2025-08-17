@@ -41,30 +41,18 @@ export class TasksController {
 
   @Get()
   @ApiOperation({ summary: 'Find all tasks with optional filtering' })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-  })
-  @ApiQuery({
-    name: 'priority',
-    required: false,
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-  })
   async findAll(@Query() query: TaskQueryDto) {
-    const { status, priority, page, limit } = query;
+    const { status, priority, page, limit, search, startDate, endDate, userId } = query;
 
     const { data, total } = await this.tasksService.findAllWithFilters(
       page,
       limit,
       status,
       priority,
+      search,
+      startDate,
+      endDate,
+      userId,
     );
 
     return {
