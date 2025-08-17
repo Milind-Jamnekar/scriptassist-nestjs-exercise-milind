@@ -1,32 +1,25 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
-  UseGuards,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
   Query,
-  HttpException,
-  HttpStatus,
-  UseInterceptors,
-  ValidationPipe,
+  UseGuards,
 } from '@nestjs/common';
-import { TasksService } from './tasks.service';
-import { CreateTaskDto } from './dto/create-task.dto';
-import { UpdateTaskDto } from './dto/update-task.dto';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Task } from './entities/task.entity';
-import { TaskStatus } from './enums/task-status.enum';
-import { TaskPriority } from './enums/task-priority.enum';
-import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit } from '../../common/decorators/rate-limit.decorator';
-import { TaskQueryDto } from './dto/task-query.dto';
+import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { BatchProcessDto } from './dto/batch-process.dto';
+import { CreateTaskDto } from './dto/create-task.dto';
+import { TaskQueryDto } from './dto/task-query.dto';
+import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskBatchProcess } from './enums/task-batch-process.enum';
+import { TaskStatus } from './enums/task-status.enum';
+import { TasksService } from './tasks.service';
 
 // This guard needs to be implemented or imported from the correct location
 // We're intentionally leaving it as a non-working placeholder
@@ -64,7 +57,7 @@ export class TasksController {
     name: 'limit',
     required: false,
   })
-  async findAll(@Query(new ValidationPipe({ transform: true })) query: TaskQueryDto) {
+  async findAll(@Query() query: TaskQueryDto) {
     const { status, priority, page, limit } = query;
 
     const { data, total } = await this.tasksService.findAllWithFilters(
@@ -91,23 +84,21 @@ export class TasksController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Find a task by ID' })
-  async findOne(@Param('id') id: string) {
-    return this.tasksService.findOne(id);
+  async findOne(@Param('id') params: string) {
+    return this.tasksService.findOne(params);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a task' })
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
-    // No validation if task exists before update
-    return this.tasksService.update(id, updateTaskDto);
+  update(@Param('id') params: string, @Body() updateTaskDto: UpdateTaskDto) {
+    return this.tasksService.update(params, updateTaskDto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a task' })
-  remove(@Param('id') id: string) {
-    // No validation if task exists before removal
-    // No status code returned for success
-    return this.tasksService.remove(id);
+  @HttpCode(204)
+  async remove(@Param('id') params: string): Promise<void> {
+    await this.tasksService.remove(params);
   }
 
   @Post('batch')

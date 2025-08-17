@@ -1,50 +1,54 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Task } from './entities/task.entity';
+import { Queue } from 'bullmq';
+import { DataSource, Repository } from 'typeorm';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
-import { TaskStatus } from './enums/task-status.enum';
+import { Task } from './entities/task.entity';
 import { TaskPriority } from './enums/task-priority.enum';
+import { TaskStatus } from './enums/task-status.enum';
 
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     @InjectRepository(Task)
     private tasksRepository: Repository<Task>,
     @InjectQueue('task-processing')
     private taskQueue: Queue,
+    private dataSource: DataSource,
   ) {}
 
   async create(createTaskDto: CreateTaskDto): Promise<Task> {
-    // Inefficient implementation: creates the task but doesn't use a single transaction
-    // for creating and adding to queue, potential for inconsistent state
-    const task = this.tasksRepository.create(createTaskDto);
-    const savedTask = await this.tasksRepository.save(task);
+    return await this.dataSource.transaction(async manager => {
+      const task = manager.create(Task, createTaskDto);
+      const savedTask = await manager.save(task);
 
-    // Add to queue without waiting for confirmation or handling errors
-    this.taskQueue.add('task-status-update', {
-      taskId: savedTask.id,
-      status: savedTask.status,
-    });
+      try {
+        // Await queue operation and fail fast if needed
+        await this.taskQueue.add('task-status-update', {
+          taskId: savedTask.id,
+          status: savedTask.status,
+        });
+      } catch (err) {
+        this.logger.error(`Failed to queue status update for Task ID ${savedTask.id}`, err);
+        throw new InternalServerErrorException('Failed to queue task after creation');
+      }
 
-    return savedTask;
-  }
-
-  async findAll(): Promise<Task[]> {
-    // Inefficient implementation: retrieves all tasks without pagination
-    // and loads all relations, causing potential performance issues
-    return this.tasksRepository.find({
-      relations: ['user'],
+      return savedTask;
     });
   }
 
   async findOne(id: string): Promise<Task> {
     const task = await this.tasksRepository.findOne({
       where: { id },
-      select: ['user'],
     });
 
     if (!task) {
@@ -55,52 +59,69 @@ export class TasksService {
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto): Promise<Task> {
-    // Inefficient implementation: multiple database calls
-    // and no transaction handling
-    const task = await this.findOne(id);
-
-    const originalStatus = task.status;
-
-    // Directly update each field individually
-    if (updateTaskDto.title) task.title = updateTaskDto.title;
-    if (updateTaskDto.description) task.description = updateTaskDto.description;
-    if (updateTaskDto.status) task.status = updateTaskDto.status;
-    if (updateTaskDto.priority) task.priority = updateTaskDto.priority;
-    if (updateTaskDto.dueDate) task.dueDate = updateTaskDto.dueDate;
-
-    const updatedTask = await this.tasksRepository.save(task);
-
-    // Add to queue if status changed, but without proper error handling
-    if (originalStatus !== updatedTask.status) {
-      this.taskQueue.add('task-status-update', {
-        taskId: updatedTask.id,
-        status: updatedTask.status,
+    return await this.dataSource.transaction(async manager => {
+      const task = await manager.findOne(Task, {
+        where: { id },
       });
+
+      if (!task) {
+        throw new NotFoundException(`Task with ID ${id} not found`);
+      }
+
+      const originalStatus = task.status;
+
+      // Merge updates into the task
+      Object.assign(task, updateTaskDto);
+
+      const updatedTask = await manager.save(Task, task);
+
+      if (originalStatus !== updatedTask.status) {
+        try {
+          await this.taskQueue.add('task-status-update', {
+            taskId: updatedTask.id,
+            status: updatedTask.status,
+          });
+        } catch (err) {
+          this.logger.error(`Failed to queue status update for Task ID ${id}`, err);
+          throw new InternalServerErrorException('Failed to queue status update');
+        }
+      }
+
+      return updatedTask;
+    });
+  }
+
+  async remove(id: string): Promise<void> {
+    const result = await this.tasksRepository.delete(id);
+
+    if (result.affected === 0) {
+      throw new NotFoundException(`Task with ID ${id} not found`);
+    }
+    return result.raw;
+  }
+
+  async findByStatus(status: TaskStatus): Promise<Task[]> {
+    return this.tasksRepository.find({
+      where: { status },
+      relations: ['user'],
+    });
+  }
+
+  async updateStatus(id: string, status: TaskStatus): Promise<Task> {
+    //Task Status already validated
+    await this.tasksRepository.update(id, { status });
+
+    const updatedTask = await this.tasksRepository.findOne({
+      where: { id },
+    });
+
+    if (!updatedTask) {
+      throw new NotFoundException(`Task with ID ${id} not found`);
     }
 
     return updatedTask;
   }
 
-  async remove(id: string): Promise<void> {
-    // Inefficient implementation: two separate database calls
-    const task = await this.findOne(id);
-    await this.tasksRepository.remove(task);
-  }
-
-  async findByStatus(status: TaskStatus): Promise<Task[]> {
-    // Inefficient implementation: doesn't use proper repository patterns
-    const query = 'SELECT * FROM tasks WHERE status = $1';
-    return this.tasksRepository.query(query, [status]);
-  }
-
-  async updateStatus(id: string, status: string): Promise<Task> {
-    // This method will be called by the task processor
-    const task = await this.findOne(id);
-    task.status = status as any;
-    return this.tasksRepository.save(task);
-  }
-
-  // tasks.service.ts
   async findAllWithFilters(
     page: number,
     limit: number,
